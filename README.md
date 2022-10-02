@@ -30,8 +30,8 @@ Key benefits & features:
 The `setup.sh` file contains the complete procedure of creating a conda environment to run mGLAD model. run `bash setup.sh`    
 In case of dependencies conflict, one can alternatively use this command `conda env create --name ngm --file=environment.yml`.  
 
-## demo on a lung cancer dataset    
-A minimalist working example of NGMs is given in `ngm.ipynb`. It is a good entry point to understand the code structure as well as NGMs.  
+## demo on representing Gausssian Graphical models (GGMs) using NGMs    
+A minimalist working example of NGMs is given in `demo_NGMs.ipynb`. It is a good entry point to understand the code structure as well as NGMs.  
 
 ## Citation
 If you find this method useful, kindly cite the following associated papers:
