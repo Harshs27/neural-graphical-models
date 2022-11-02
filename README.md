@@ -35,6 +35,21 @@ A minimalist working example of NGMs is given in `demo_NGMs.ipynb`. It is a good
 
 ## Citation
 If you find this method useful, kindly cite the following associated papers:
-- `Neural Graphical Models`: [arxiv](<https://arxiv.org/abs/2210.00453>)
+- `Neural Graphical Models`: [arxiv](<https://arxiv.org/abs/2210.00453>)  
 
-- `uGLAD`: Sparse graph recovery by optimizing deep unrolled networks. [arxiv](<https://arxiv.org/abs/2205.11610>)
+@article{shrivastava2022neural,  
+  title={Neural Graphical Models},  
+  author={Shrivastava, Harsh and Chajewska, Urszula},  
+  journal={arXiv preprint arXiv:2210.00453},  
+  year={2022}  
+}   
+
+
+- `uGLAD`: Sparse graph recovery by optimizing deep unrolled networks. [arxiv](<https://arxiv.org/abs/2205.11610>)  
+
+@article{shrivastava2022uglad,  
+  title={uGLAD: Sparse graph recovery by optimizing deep unrolled networks},  
+  author={Shrivastava, Harsh and Chajewska, Urszula and Abraham, Robin and Chen, Xinshi},  
+  journal={arXiv preprint arXiv:2205.11610},  
+  year={2022}  
+}
