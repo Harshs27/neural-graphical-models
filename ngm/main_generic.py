@@ -1331,13 +1331,17 @@ def inference_batch(
     # Arrange the columns of input data to match feature means
     Xy = Xy[feature_names]
     # Freeze the model weights
+    model.eval()
     for p in model.parameters():
         p.requires_grad = False
     # initialize the target feature as the mean value
+    # print(f'set target feature: started')
     Xy[target_feature] = feature_means[target_feature] # BxD
+    # print(f'set target feature: done')
     # Scale the input data
+    # print(f'Scaling the input: started')
     Xy = pd.DataFrame(scaler.transform(Xy), columns=Xy.columns)
-    # print(Xy)
+    # print(f'Scaling the input: done')
     # Creating the feature list with unobserved (unknown) tensors as learnable.
     # and observed (known) tensors as fixed
     feature_tensors, optimizer_parameters = [], [] # List of feature tensors (D list of length B)
@@ -1349,7 +1353,7 @@ def inference_batch(
     # fixed_tensors = torch.as_tensor(Xy)
     # fixed_tensors.requires_grad = False
     # feature_tensors =  
-
+    # print(f'Assigning tensors: started')
     for i, _n in enumerate(feature_names):
         _xi = torch.as_tensor(Xy[_n]).float().reshape(-1, 1).to(device) # Bx1
         # set the value to learnable or not
@@ -1359,6 +1363,7 @@ def inference_batch(
         if _n in target_feature: 
             # print(f'Learnable feature {i, _n}')
             optimizer_parameters.append(_xi)
+    # print(f'Assigning tensors: Done')
     # for i, ft in enumerate(feature_tensors):
     #     print(ft.requires_grad)
     # print(f' feature tensors {len(feature_tensors), len(feature_tensors[3:15])}')
@@ -1369,13 +1374,14 @@ def inference_batch(
     # Init a mask for the known & unknown values
     mask_known = torch.zeros(B, D).to(device).float()
     mask_known.requires_grad = False
-    mask_unknown = torch.zeros(B, D).to(device).float()
-    mask_unknown.requires_grad = False
+    # mask_unknown = torch.zeros(B, D).to(device).float()
+    # mask_unknown.requires_grad = False
     for i, _n in enumerate(feature_names):
-        if _n in target_feature:
+        # if _n in target_feature:
             # print(f'Inside target feature mask {i, _n}')
-            mask_unknown[:, i] = 1
-        else:
+            # mask_unknown[:, i] = 1
+        # else:
+        if _n not in target_feature:
             mask_known[:, i] = 1
     # Define the optimizer
     optimizer = torch.optim.Adam(
@@ -1401,7 +1407,7 @@ def inference_batch(
                 _b_size = Xy.shape[0]-b*B
                 Xi = torch.cat([ft[b*B:] for ft in feature_tensors], 1)
                 mask_known = mask_known[:_b_size, :]
-                mask_unknown = mask_unknown[:_b_size, :]
+                # mask_unknown = mask_unknown[:_b_size, :]
                 # print(f'Check masks {_b_size, Xy.shape[0], B, mask_known, mask_known.shape}')
             else:
                 Xi = torch.cat([ft[b*B:(b+1)*B] for ft in feature_tensors], 1)
@@ -1448,6 +1454,27 @@ def inference_batch(
 # Functions to sample from the learned NGM
 ######################################################################
 
+def original_from_onehot(Xs, dtype, ohe):
+    numerical_features = [f for f in dtype.keys() if dtype[f]=='r']
+    original_categories = [f for f in dtype.keys() if dtype[f]=='c']
+    categorical_features = list(ohe.get_feature_names_out())
+    # Collect all the numerical values
+    category_values = ohe.categories_
+    # Matching whether the original categories are correct
+    # by checking the order 
+    categorical_features_2 = []
+    for co, cv in zip(original_categories, category_values):
+        for v in cv:
+            categorical_features_2.append(str(co)+'_'+str(v))
+    #if condition returns False, AssertionError is raised:
+    assert categorical_features==categorical_features_2, 'Check categorical features ohe order'
+    # print(categorical_features, categorical_features_2, original_categories)
+    df_ohe_inverse = pd.DataFrame(ohe.inverse_transform(Xs[categorical_features]), columns=original_categories)
+    # print(f'Checking inverse transform {df_ohe_inverse}')
+    # print(f'Checking numerical features {numerical_features,list(Xs.columns)} ')
+    dfs = pd.concat([Xs[numerical_features], df_ohe_inverse], axis=1)
+    # Do inverse transform for the categorical features
+    return dfs
 
 def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUDA=True, VERBOSE=True):
     """Get a batch sample from the NGM model.
@@ -1475,7 +1502,13 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
     # replicating the rows, num_samples times
     Xy = Xy.append([Xy]*(num_samples-1),ignore_index=True)    
     cat_names = dp.get_cat_names(ohe, dtype)
-
+    def transform2onehot(cat_values, _feature_samples):
+        # Convert to one-hot
+        _ohe = preprocessing.OneHotEncoder(categories=[cat_values])#(handle_unknown='ignore')
+        _ohe.fit(_feature_samples)
+        _feature_samples = _ohe.transform(_feature_samples).toarray()
+        _feature_samples = pd.DataFrame(_feature_samples, columns=_ohe.get_feature_names_out())
+        return _feature_samples
     f0 = Ds[0]  # Get the first feature
     # Initializing the first feature over the entire range.
     if dtype[f0]=='r':
@@ -1499,13 +1532,6 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
         # Convert to list of lists for onehot enc to work
         _feature_samples = [[str(fs)] for fs in np.random.choice(cat_values, num_samples, p=probabilities)]
         _feature_samples = pd.DataFrame(_feature_samples, columns=[str(f0)]).astype('str') 
-        def transform2onehot(cat_values, _feature_samples):
-            # Convert to one-hot
-            _ohe = preprocessing.OneHotEncoder(categories=[cat_values])#(handle_unknown='ignore')
-            _ohe.fit(_feature_samples)
-            _feature_samples = _ohe.transform(_feature_samples).toarray()
-            _feature_samples = pd.DataFrame(_feature_samples, columns=_ohe.get_feature_names_out())
-            return _feature_samples
         # print(f'_features sampled {cat_values, _feature_samples, _feature_samples.shape}')
         _feature_samples = transform2onehot(cat_values, _feature_samples)
         # print(f'One hot {_feature_samples, c_names}')
@@ -1569,17 +1595,17 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
                 model_NGM, 
                 Xy, 
                 target_features, 
-                lr=0.01, 
+                lr=0.1, 
                 max_itr=max_itr,
                 VERBOSE=VERBOSE,
-                reg_loss_th=1e-2, 
+                reg_loss_th=1e-1, 
                 BATCH_SIZE=10000,
                 USE_CUDA=USE_CUDA
             )
-            # print(f'After {Xy}')#[observed_features]}')
+            print(f'After {Xy.shape}')#[observed_features]}')
     return Xy
 
-def sampling(model_NGM, Gr, dtype, ohe, num_samples=10, max_infer_itr=20, USE_CUDA=True, VERBOSE=True):
+def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_CUDA=True, VERBOSE=True, column_order=None):
     """Get samples from the learned NGM by using the sampling algorithm. 
     The procedure is akin to Gibbs sampling. Batch sampling. 
 
@@ -1596,9 +1622,8 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=10, max_infer_itr=20, USE_CU
     Returns:
         Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
     """
-    # Xs = []  # Collection of feature dicts
-    # for i in range(num_samples):
-        # if not i%100: print(f'Sample={i}')#, Source node {n1}')
+    folder = '../../../externalData/infant_mortality/inference_expts_paper/samples_ngm/'
+    filename = 'samples_10k_from_NGM_based_on_BN_graph_'
     # Getting samples for a particular BFS order
     # Select a node at random
     # for s in range(100):
@@ -1607,16 +1632,29 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=10, max_infer_itr=20, USE_CU
     #     print(s, n1, dtype[n1])
     # np.random.seed(21)
     # n1 = np.random.choice(Gr.nodes(), 1)[0]
+    RUNS=100 # Batch size = 1mil/10
+    num_samples_per_run = int(num_samples/RUNS)#100) # 50K samples
     dfs = [] # Collection of feature dicts
-    for i, n1 in enumerate(Gr.nodes()):
+    graph_nodes = Gr.nodes()
+    # graph_nodes = np.random.choice(graph_nodes, RUNS, replace=False)
+    print(f'set of starting nodes {graph_nodes}')
+    for i, n1 in enumerate(graph_nodes):
         print(f'Start node {i}/{len(Gr.nodes())}: {n1}')
+        # if i>0:
+        #     print(f'CREATING a mil samples based on a single ordering.')
+        #     break
         # Get the BFS ordering
         edges = nx.bfs_edges(Gr, n1)
         Ds = [n1] + [v for u, v in edges] # original nodes, convert to one-hot
         # print(f'node order: {Ds, len(Ds)}')
         # For each 
-        _Xs = get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=max_infer_itr, USE_CUDA=USE_CUDA, VERBOSE=VERBOSE)
-        dfs.append(original_from_onehot(_Xs, dtype, ohe))
+        _Xs = get_sample_batch(model_NGM, Ds, num_samples_per_run, dtype, ohe, max_itr=max_infer_itr, USE_CUDA=USE_CUDA, VERBOSE=VERBOSE)
+        _dfs = original_from_onehot(_Xs, dtype, ohe)
+        # Save the samples created
+        if column_order is not None:
+            _dfs = _dfs[column_order]
+        _dfs.to_csv(folder+filename+str(i)+'.csv', index=False)
+        dfs.append(_dfs)
         # if i>2:
         #     print(f'REMOVE')
         #     break
@@ -1625,29 +1663,6 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=10, max_infer_itr=20, USE_CU
     # Xs = pd.DataFrame(Xs, columns=Ds)
     return dfs
 
-
-def original_from_onehot(Xs, dtype, ohe):
-    numerical_features = [f for f in dtype.keys() if dtype[f]=='r']
-    original_categories = [f for f in dtype.keys() if dtype[f]=='c']
-    categorical_features = list(ohe.get_feature_names_out())
-    # Collect all the numerical values
-    category_values = ohe.categories_
-    # Matching whether the original categories are correct
-    # by checking the order 
-    categorical_features_2 = []
-    for co, cv in zip(original_categories, category_values):
-        for v in cv:
-            categorical_features_2.append(str(co)+'_'+str(v))
-    #if condition returns False, AssertionError is raised:
-    assert categorical_features==categorical_features_2, 'Check categorical features ohe order'
-    print(categorical_features, categorical_features_2, original_categories)
-    df_ohe_inverse = pd.DataFrame(ohe.inverse_transform(Xs[categorical_features]), columns=original_categories)
-    # print(f'Checking inverse transform {df_ohe_inverse}')
-    # print(f'Checking numerical features {numerical_features,list(Xs.columns)} ')
-    dfs = pd.concat([Xs[numerical_features], df_ohe_inverse], axis=1)
-    # Do inverse transform for the categorical features
-    return dfs
-    
 
 
 def get_sample_single(model_NGM, Ds, max_itr=10):
