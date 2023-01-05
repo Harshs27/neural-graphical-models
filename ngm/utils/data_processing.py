@@ -15,6 +15,7 @@ from time import time
 import torch
 
 
+
 def function_plots_for_target(plot_dict):
     """
     plot_dict ={
@@ -137,7 +138,7 @@ def series2df(series):
 
 def t2np(x):
     "Convert torch to numpy"
-    return x.detach().numpy()
+    return x.detach().cpu().numpy()
 
 
 def convertToTorch(data, req_grad=False, use_cuda=False):
@@ -260,7 +261,16 @@ def process_data_for_CI_graph(table, NORM='min_max', msg='', drop_duplicate=True
     return table, scaler
 
 
-def convert_to_onehot(df):
+def get_cat_names(ohe, dtype):
+    # Collecting the number of categories in cat features
+    # categorical features in the original df. 
+    categorical_features = [k for k, v in dtype.items() if v=='c']
+    cat_names = {}
+    for name, cat in zip(categorical_features, ohe.categories_):
+        cat_names[name] = [str(name)+'_'+str(c) for c in cat]
+    return cat_names
+
+def convert_to_onehot(df, prefix=None):
     ohe = preprocessing.OneHotEncoder()#(handle_unknown='ignore')
     ohe.fit(df)
     # transforming the entire array
@@ -268,7 +278,9 @@ def convert_to_onehot(df):
     # transforming a single input
     # single_ohe = ohe.transform([df.loc[0].values]).toarrayray()
     # setting the column names
-    df_ohe = pd.DataFrame(df_ohe, columns=ohe.get_feature_names_out())
+    col_names = ohe.get_feature_names_out()
+    df_ohe = pd.DataFrame(df_ohe, columns=col_names)
+
     return df_ohe, ohe
 
 
