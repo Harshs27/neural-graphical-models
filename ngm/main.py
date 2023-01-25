@@ -116,8 +116,11 @@ def forward_NGM(X, model, S, structure_penalty='hadamard', lambd=0.1):
             structure_loss = struct_mse(prod_W, Sg)
         # 3.5 Scale the structure loss
         structure_loss = structure_loss/(D**2)
+        # Adding the log scaling
+        structure_loss = torch.log(structure_loss)
     # 4. Calculate the total loss = reg_loss + lambd * struct_loss
     loss = reg_loss + lambd * structure_loss
+ 
     return Xp, loss, reg_loss, structure_loss
 
 
@@ -579,7 +582,7 @@ def get_sample(model_NGM, Ds, max_itr=10):
         # random noise for the feature.
         val = pred_x[f][0]
         # Add a small % of random noise 
-        eps = np.random.uniform(-0.01*np.abs(val), 0.01*np.abs(val))
+        eps = np.random.uniform(-0.05*np.abs(val), 0.05*np.abs(val))
         features_dict[f] = val + eps
     return features_dict
     

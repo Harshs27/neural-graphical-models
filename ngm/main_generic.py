@@ -107,7 +107,7 @@ def forward_NGM(X, model, S, structure_penalty='hadamard', lambd=0.1):
         # 3.4 Scale the structure loss
         structure_loss = structure_loss/(D**2)
         # Adding the log scaling
-        structure_loss = -1*torch.log(structure_loss)
+        structure_loss = torch.log(structure_loss)
     # 4. Calculate the total loss = reg_loss + lambd * struct_loss
     loss = reg_loss + lambd * structure_loss
     return Xp, loss, reg_loss, structure_loss
@@ -1622,8 +1622,8 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_C
     Returns:
         Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
     """
-    folder = '../../../externalData/infant_mortality/inference_expts_paper/samples_ngm/'
-    filename = 'samples_10k_from_NGM_based_on_BN_graph_'
+    # folder = '../../../externalData/infant_mortality/inference_expts_paper/samples_ngm/'
+    # filename = 'samples_10k_from_NGM_based_on_BN_graph_'
     # Getting samples for a particular BFS order
     # Select a node at random
     # for s in range(100):
@@ -1653,7 +1653,7 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_C
         # Save the samples created
         if column_order is not None:
             _dfs = _dfs[column_order]
-        _dfs.to_csv(folder+filename+str(i)+'.csv', index=False)
+        # _dfs.to_csv(folder+filename+str(i)+'.csv', index=False)
         dfs.append(_dfs)
         # if i>2:
         #     print(f'REMOVE')
