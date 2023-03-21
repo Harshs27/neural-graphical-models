@@ -47,9 +47,11 @@ If you find this method useful, kindly cite the following associated papers:
 
 - `uGLAD`: Sparse graph recovery by optimizing deep unrolled networks. [arxiv](<https://arxiv.org/abs/2205.11610>)  
 
-@article{shrivastava2022uglad,  
-  title={uGLAD: Sparse graph recovery by optimizing deep unrolled networks},  
-  author={Shrivastava, Harsh and Chajewska, Urszula and Abraham, Robin and Chen, Xinshi},  
-  journal={arXiv preprint arXiv:2205.11610},  
-  year={2022}  
+@inproceedings{
+shrivastava2022a,
+title={A deep learning approach to recover conditional independence graphs},
+author={Harsh Shrivastava and Urszula Chajewska and Robin Abraham and Xinshi Chen},
+booktitle={NeurIPS 2022 Workshop: New Frontiers in Graph Learning},
+year={2022},
+url={https://openreview.net/forum?id=kEwzoI3Am4c}
 }
