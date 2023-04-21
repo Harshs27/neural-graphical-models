@@ -538,7 +538,7 @@ def inference_with_CV(
         if v!=unknown_val:
             _Xi[_n] = v
     # Normalize the values of Xi using the scaler
-    _Xi = scaler.fit_transform(dp.series2df(_Xi))[0]
+    _Xi = scaler.transform(dp.series2df(_Xi))[0]
     # Convert to dataseries to maintain the column name associations
     _Xi = pd.Series(
         {n:v for n, v in zip(feature_names, _Xi)}, 
@@ -683,7 +683,7 @@ def inference(
         if v!=unknown_val:
             _Xi[_n] = v
     # Normalize the values of Xi using the scaler
-    _Xi = scaler.fit_transform(dp.series2df(_Xi))[0]
+    _Xi = scaler.transform(dp.series2df(_Xi))[0]
     # Convert to dataseries to maintain the column name associations
     _Xi = pd.Series(
         {n:v for n, v in zip(feature_names, _Xi)}, 
@@ -808,7 +808,7 @@ def fit_regression_direct(
     # initialize the target feature as the mean value (SHOULD NOT MATTER)
     Xy[target_feature] = feature_means[target_feature]  # BxD
     # Scale the input and create a tensor
-    Xi_all = dp.convertToTorch(scaler.fit_transform(Xy), req_grad=False).to(device)
+    Xi_all = dp.convertToTorch(scaler.transform(Xy), req_grad=False).to(device)
     print(Xi_all.shape) # B_allxD
     # Minimizing for the regression loss for the known values.
     Xp_batch = []
@@ -886,7 +886,7 @@ def fit_regression(
     # initialize the target feature as the mean value
     Xy[target_feature] = feature_means[target_feature] # BxD
     # Scale the input data
-    Xy = pd.DataFrame(scaler.fit_transform(Xy), columns=Xy.columns)
+    Xy = pd.DataFrame(scaler.transform(Xy), columns=Xy.columns)
     print(Xy)
     # Creating the feature list with unobserved (unknown) tensors as learnable.
     # and observed (known) tensors as fixed
@@ -1050,7 +1050,7 @@ def fit_regression_no_batch(
     # initialize the target feature as the mean value
     Xy[target_feature] = feature_means[target_feature] # BxD
     # Scale the input data
-    Xy = pd.DataFrame(scaler.fit_transform(Xy), columns=Xy.columns)
+    Xy = pd.DataFrame(scaler.transform(Xy), columns=Xy.columns)
     print(Xy)
     # Creating the feature list with unobserved (unknown) tensors as learnable.
     # and observed (known) tensors as fixed
@@ -1185,7 +1185,7 @@ def get_distribution_function(target, source, model, scaler, Xi, x_count=100):
     # 2.2 Find the source column and assign the range values
     Xi[source] = x_vals
     # 3. Normalize the Xi and create a batch tensor
-    Xi = scaler.fit_transform(Xi) # x_count x D
+    Xi = scaler.transform(Xi) # x_count x D
     Xi = dp.convertToTorch(Xi, req_grad=False)
     # 4. Run the NGM model 
     Xp = model.MLP(Xi)
@@ -1340,7 +1340,7 @@ def inference_batch(
     # print(f'set target feature: done')
     # Scale the input data
     # print(f'Scaling the input: started')
-    Xy = pd.DataFrame(scaler.fit_transform(Xy), columns=Xy.columns)
+    Xy = pd.DataFrame(scaler.transform(Xy), columns=Xy.columns)
     # print(f'Scaling the input: done')
     # Creating the feature list with unobserved (unknown) tensors as learnable.
     # and observed (known) tensors as fixed
