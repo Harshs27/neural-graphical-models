@@ -399,7 +399,7 @@ def inference(
         curr_reg_loss = dp.t2np(reg_loss)
         if curr_reg_loss < best_reg_loss:
             best_reg_loss = curr_reg_loss
-            best_Xp = dp.t2np(Xi)
+            best_Xp = dp.t2np(Xo) # Xi
         if not itr%PRINT and VERBOSE: 
             print(f'itr {itr}: reg loss {curr_reg_loss}, Xi={Xi}, Xp={Xp}')
             Xpred = dp.inverse_norm_table(best_Xp, scaler)
