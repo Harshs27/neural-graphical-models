@@ -612,7 +612,7 @@ def inference_with_CV(
         #     best_Xp = dp.t2np(Xi)
         if curr_valid_loss < best_valid_loss:
             best_valid_loss = curr_valid_loss
-            best_Xp = dp.t2np(Xi)
+            best_Xp = dp.t2np(Xo) # Xi
         if not itr%PRINT and VERBOSE: 
             # print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
             print(f'itr {itr}: reg loss {curr_valid_loss}') #, Xi={Xi}, Xp={Xp}')
@@ -747,7 +747,7 @@ def inference(
         curr_reg_loss = dp.t2np(reg_loss)
         if curr_reg_loss < best_reg_loss:
             best_reg_loss = curr_reg_loss
-            best_Xp = dp.t2np(Xi)
+            best_Xp = dp.t2np(Xo) # Xi
         if not itr%PRINT and VERBOSE: 
             print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
             Xpred = dp.inverse_norm_table(best_Xp, scaler)
@@ -975,7 +975,7 @@ def fit_regression(
             curr_reg_loss = dp.t2np(reg_loss)
             if curr_reg_loss < best_reg_loss:
                 best_reg_loss = curr_reg_loss
-                best_Xp = dp.t2np(Xi)
+                best_Xp = dp.t2np(Xo) # Xi
             if not itr%PRINT and VERBOSE: 
                 print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
                 # Xpred = dp.inverse_norm_table(best_Xp, scaler)
@@ -1422,7 +1422,7 @@ def inference_batch(
             Xo.requires_grad = False
             # Calculate the Inference loss using the known values
             reg_loss = mse(mask_known*Xp, mask_known*Xo)
-            reg_loss = -1*torch.log(reg_loss)
+            # reg_loss = torch.log(reg_loss)
             # reg_loss = mse(Xp, Xo)
             # calculate the backward gradients
             reg_loss.backward()
