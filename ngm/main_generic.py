@@ -1330,6 +1330,8 @@ def inference_batch(
     feature_names = feature_means.index
     # Arrange the columns of input data to match feature means
     Xy = Xy[feature_names]
+    known_features = [f for f in feature_names if f not in target_feature]
+    Xy_known_features = Xy[known_features].copy()
     # Freeze the model weights
     model.eval()
     for p in model.parameters():
@@ -1445,8 +1447,7 @@ def inference_batch(
     Xpred = dp.inverse_norm_table(best_Xp_batch, scaler)
     Xpred = pd.DataFrame(Xpred, columns=feature_names)
     # Set the known feature columns from the input
-    known_features = [f for f in feature_names if f not in target_feature]
-    Xpred[known_features] = Xy[known_features]
+    Xpred[known_features] = Xy_known_features
     # print(f'CHECK the assignment of known features {Xpred, Xpred[target_feature]}') 
     return Xpred
 
