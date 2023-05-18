@@ -33,4 +33,25 @@ In case of dependencies conflict, one can alternatively use this command `conda 
 ## demo on representing Gausssian Graphical models (GGMs) using NGMs    
 A minimalist working example of NGMs is given in `demo_NGMs.ipynb`. It is a good entry point to understand the code structure as well as NGMs.  
 
+## Citation
+If you find this method useful, kindly cite the following associated papers:
+- `Neural Graphical Models`: [arxiv](<https://arxiv.org/abs/2210.00453>)  
 
+@article{shrivastava2022neural,  
+  title={Neural Graphical Models},  
+  author={Shrivastava, Harsh and Chajewska, Urszula},  
+  journal={arXiv preprint arXiv:2210.00453},  
+  year={2022}  
+}   
+
+
+- `uGLAD`: Sparse graph recovery by optimizing deep unrolled networks. [arxiv](<https://arxiv.org/abs/2205.11610>)  
+
+@inproceedings{  
+shrivastava2022a,   
+title={A deep learning approach to recover conditional independence graphs},  
+author={Harsh Shrivastava and Urszula Chajewska and Robin Abraham and Xinshi Chen},  
+booktitle={NeurIPS 2022 Workshop: New Frontiers in Graph Learning},  
+year={2022},  
+url={https://openreview.net/forum?id=kEwzoI3Am4c}  
+}  
