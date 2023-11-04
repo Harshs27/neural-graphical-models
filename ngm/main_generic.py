@@ -612,7 +612,7 @@ def inference_with_CV(
         #     best_Xp = dp.t2np(Xi)
         if curr_valid_loss < best_valid_loss:
             best_valid_loss = curr_valid_loss
-            best_Xp = dp.t2np(Xo) # Xi
+            best_Xp = dp.t2np(Xi)
         if not itr%PRINT and VERBOSE: 
             # print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
             print(f'itr {itr}: reg loss {curr_valid_loss}') #, Xi={Xi}, Xp={Xp}')
@@ -747,7 +747,7 @@ def inference(
         curr_reg_loss = dp.t2np(reg_loss)
         if curr_reg_loss < best_reg_loss:
             best_reg_loss = curr_reg_loss
-            best_Xp = dp.t2np(Xo) # Xi
+            best_Xp = dp.t2np(Xi)
         if not itr%PRINT and VERBOSE: 
             print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
             Xpred = dp.inverse_norm_table(best_Xp, scaler)
@@ -975,7 +975,7 @@ def fit_regression(
             curr_reg_loss = dp.t2np(reg_loss)
             if curr_reg_loss < best_reg_loss:
                 best_reg_loss = curr_reg_loss
-                best_Xp = dp.t2np(Xo) # Xi
+                best_Xp = dp.t2np(Xi)
             if not itr%PRINT and VERBOSE: 
                 print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
                 # Xpred = dp.inverse_norm_table(best_Xp, scaler)
@@ -1274,6 +1274,10 @@ def marginal_distributions(model_NGM, X):
     return hist
 
 
+######################################################################
+# Functions to sample from the learned NGM
+######################################################################
+
 def inference_batch(
     model_NGM, 
     Xy, 
@@ -1330,32 +1334,18 @@ def inference_batch(
     feature_names = feature_means.index
     # Arrange the columns of input data to match feature means
     Xy = Xy[feature_names]
-    known_features = [f for f in feature_names if f not in target_feature]
-    Xy_known_features = Xy[known_features].copy()
     # Freeze the model weights
     model.eval()
     for p in model.parameters():
         p.requires_grad = False
     # initialize the target feature as the mean value
-    # print(f'set target feature: started')
     Xy[target_feature] = feature_means[target_feature] # BxD
-    # print(f'set target feature: done')
     # Scale the input data
-    # print(f'Scaling the input: started')
     Xy = pd.DataFrame(scaler.transform(Xy), columns=Xy.columns)
-    # print(f'Scaling the input: done')
     # Creating the feature list with unobserved (unknown) tensors as learnable.
     # and observed (known) tensors as fixed
     feature_tensors, optimizer_parameters = [], [] # List of feature tensors (D list of length B)
     # Setting the optimization parameters
-    # learnable_tensors = torch.as_tensor(Xy[target_feature])
-    # learnable_tensors.requires_grad = True
-    # optimizer_parameters = [learnable_tensors]
-    # Xy.drop([target_feature], inplace=True)
-    # fixed_tensors = torch.as_tensor(Xy)
-    # fixed_tensors.requires_grad = False
-    # feature_tensors =  
-    # print(f'Assigning tensors: started')
     for i, _n in enumerate(feature_names):
         _xi = torch.as_tensor(Xy[_n]).float().reshape(-1, 1).to(device) # Bx1
         # set the value to learnable or not
@@ -1363,26 +1353,11 @@ def inference_batch(
         # _xi = _xi.to(device)
         feature_tensors.append(_xi)
         if _n in target_feature: 
-            # print(f'Learnable feature {i, _n}')
             optimizer_parameters.append(_xi)
-    # print(f'Assigning tensors: Done')
-    # for i, ft in enumerate(feature_tensors):
-    #     print(ft.requires_grad)
-    # print(f' feature tensors {len(feature_tensors), len(feature_tensors[3:15])}')
-    # Xi = torch.cat(feature_tensors, 1)
-    # print(f'Input learnable tensor created {Xi, Xi.shape}')
-    # Check the gradients
-
     # Init a mask for the known & unknown values
     mask_known = torch.zeros(B, D).to(device).float()
     mask_known.requires_grad = False
-    # mask_unknown = torch.zeros(B, D).to(device).float()
-    # mask_unknown.requires_grad = False
     for i, _n in enumerate(feature_names):
-        # if _n in target_feature:
-            # print(f'Inside target feature mask {i, _n}')
-            # mask_unknown[:, i] = 1
-        # else:
         if _n not in target_feature:
             mask_known[:, i] = 1
     # Define the optimizer
@@ -1410,10 +1385,8 @@ def inference_batch(
                 Xi = torch.cat([ft[b*B:] for ft in feature_tensors], 1)
                 mask_known = mask_known[:_b_size, :]
                 # mask_unknown = mask_unknown[:_b_size, :]
-                # print(f'Check masks {_b_size, Xy.shape[0], B, mask_known, mask_known.shape}')
             else:
                 Xi = torch.cat([ft[b*B:(b+1)*B] for ft in feature_tensors], 1)
-            # print(f'Check { len(feature_tensors[b*B:(b+1)*B]), Xi.shape, b, B, (b+1)*B}')
             # reset the grads to zero
             optimizer.zero_grad()
             # Running the NGM model 
@@ -1424,7 +1397,7 @@ def inference_batch(
             Xo.requires_grad = False
             # Calculate the Inference loss using the known values
             reg_loss = mse(mask_known*Xp, mask_known*Xo)
-            # reg_loss = torch.log(reg_loss)
+            reg_loss = -1*torch.log(reg_loss)
             # reg_loss = mse(Xp, Xo)
             # calculate the backward gradients
             reg_loss.backward()
@@ -1437,23 +1410,17 @@ def inference_batch(
                 best_Xp = dp.t2np(Xo) #Xi
             if not itr%PRINT and VERBOSE: 
                 print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
-                # Xpred = dp.inverse_norm_table(best_Xp, scaler)
-                # print(f'Current best Xpred={Xpred}')
+
             itr += 1
         # Collect the predictions
         best_Xp_batch.extend(best_Xp)
     # inverse normalize the prediction
-    # print(f'scale back to original {best_Xp}')
     Xpred = dp.inverse_norm_table(best_Xp_batch, scaler)
     Xpred = pd.DataFrame(Xpred, columns=feature_names)
     # Set the known feature columns from the input
-    Xpred[known_features] = Xy_known_features
-    # print(f'CHECK the assignment of known features {Xpred, Xpred[target_feature]}') 
+    known_features = [f for f in feature_names if f not in target_feature]
+    Xpred[known_features] = Xy[known_features]
     return Xpred
-
-######################################################################
-# Functions to sample from the learned NGM
-######################################################################
 
 def original_from_onehot(Xs, dtype, ohe):
     numerical_features = [f for f in dtype.keys() if dtype[f]=='r']
@@ -1469,13 +1436,11 @@ def original_from_onehot(Xs, dtype, ohe):
             categorical_features_2.append(str(co)+'_'+str(v))
     #if condition returns False, AssertionError is raised:
     assert categorical_features==categorical_features_2, 'Check categorical features ohe order'
-    # print(categorical_features, categorical_features_2, original_categories)
     df_ohe_inverse = pd.DataFrame(ohe.inverse_transform(Xs[categorical_features]), columns=original_categories)
-    # print(f'Checking inverse transform {df_ohe_inverse}')
-    # print(f'Checking numerical features {numerical_features,list(Xs.columns)} ')
     dfs = pd.concat([Xs[numerical_features], df_ohe_inverse], axis=1)
     # Do inverse transform for the categorical features
     return dfs
+    
 
 def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUDA=True, VERBOSE=True):
     """Get a batch sample from the NGM model.
@@ -1495,7 +1460,6 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
     # Initialize set of samples with feature means
     model, scaler, feature_means = model_NGM
     feature_names = feature_means.index
-    # print(f'feature names {list(feature_names)}')
     Xy = pd.DataFrame({'header':feature_names, 0:feature_means.values}).transpose()
     Xy.columns = Xy.loc['header']
     Xy.drop(['header'], inplace=True)
@@ -1518,45 +1482,32 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
         feature_max = pd.Series(scaler.data_max_, index=feature_means.index)
         # Uniformly sample the first feature value from its range.
         _feature_samples = np.random.uniform(feature_min[f0], feature_max[f0], num_samples)
-        # print(_feature_samples, len(_feature_samples))
         Xy[f0] = _feature_samples
     elif dtype[f0]=='c':
         # Find all the categories and their occurrence probabilities
-        # print(f'cat {f0}, cats: {cat_names[f0]}')
         # NOTE: the mean values of one-hot features will give their relative abundance
         # or the frequentist probability values
         c_names = cat_names[f0]
         probabilities = feature_means[c_names].values
-        # print(f'feature means {feature_means[cat_names[f0]].values, probabilities, np.sum(probabilities)}')
         cat_values = [fc.replace(f0+'_', '') for fc in c_names]
-        # print(f'cat types {cat_values}')
         # Convert to list of lists for onehot enc to work
         _feature_samples = [[str(fs)] for fs in np.random.choice(cat_values, num_samples, p=probabilities)]
         _feature_samples = pd.DataFrame(_feature_samples, columns=[str(f0)]).astype('str') 
-        # print(f'_features sampled {cat_values, _feature_samples, _feature_samples.shape}')
         _feature_samples = transform2onehot(cat_values, _feature_samples)
-        # print(f'One hot {_feature_samples, c_names}')
         Xy[c_names] = _feature_samples[c_names]
         # Sample num_samples categories based on the probabilities
-    # print(Xy[c_names], f0, dtype[f0])
     observed_features = []
     for i, f in enumerate(Ds): # Ds contains features with original names
         print(f'feature {i, f}')
-        # if i>2:
-        #     print(f'REMOVE. Just for testing purpose')
-        #     break
         # Add uncertainty to current feature and make it observed (batch mode)
         if dtype[f] == 'r': # Numerical
             current_feature = [f]
             # Adding uniform noise to numerical, small % of random noise 
             eps = np.random.uniform(-0.01*np.abs(Xy[f]), 0.01*np.abs(Xy[f]))
-            # print(f'eps {eps}')
             Xy[f] = Xy[f]+eps
         elif dtype[f] == 'c': # Categorical
             current_feature = cat_names[f]
-            current_cat_values = [fc.replace(f+'_', '') for fc in current_feature]
-            # print(f'Feature {i, f, current_feature}, values {Xy[current_feature]}')
-            
+            current_cat_values = [fc.replace(f+'_', '') for fc in current_feature]            
             def sample_cat_from_prob(row):
                 # Scale, so that the sum is one and get the probabilities
                 p = np.array(row).clip(min=0)# - min(row)
@@ -1570,28 +1521,14 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
             current_feature_samples = Xy[current_feature].apply(lambda row: sample_cat_from_prob(row), axis=1)
             current_feature_samples = pd.DataFrame(current_feature_samples).astype('str')
             current_feature_samples.columns=[str(f)]
-            # print(f'Current features sampled {current_feature_samples, current_feature_samples.shape}')
             current_feature_samples = transform2onehot(current_cat_values, current_feature_samples)
-            # print(f'one hot transofrmed  {current_feature_samples}')
             Xy[current_feature] = current_feature_samples[current_feature]
-            # rowwise_min = pd.DataFrame(Xy[current_feature].min(axis=1))
-            # rowwise_min.columns = ['rowwise_min']
-            # print(f'rowwise min {rowwise_min, rowwise_min.shape}')
-            # print(f'check {Xy[current_feature] + rowwise_min}')
-            # Xy[current_feature] = Xy[current_feature] + rowwise_min
-            # Xy[current_feature] = Xy[current_feature]/Xy[current_feature].sum(axis=1)
-            # For categorical features do the uniform sampling
-            # rng = np.random.default_rng()
-            # _sampled_current_feature = rng.choice(current_feature, 1, p=Xy[current_feature], axis=1)
-            # print(f'Check the sampling {Xy[current_feature]}')
         else:
             print(f'Not valid dtype {f, dtype}')
 
         observed_features.extend(current_feature)
-        # print(f'observed features {observed_features}')
         target_features = list(set(feature_names)-set(observed_features))
         if len(target_features)>0:
-            # print(f'Before {Xy[observed_features]}')
             Xy = inference_batch(
                 model_NGM, 
                 Xy, 
@@ -1605,6 +1542,7 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
             )
             print(f'After {Xy.shape}')#[observed_features]}')
     return Xy
+
 
 def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_CUDA=True, VERBOSE=True, column_order=None):
     """Get samples from the learned NGM by using the sampling algorithm. 
@@ -1623,16 +1561,6 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_C
     Returns:
         Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
     """
-    # folder = '../../../externalData/infant_mortality/inference_expts_paper/samples_ngm/'
-    # filename = 'samples_10k_from_NGM_based_on_BN_graph_'
-    # Getting samples for a particular BFS order
-    # Select a node at random
-    # for s in range(100):
-    #     np.random.seed(s)
-    #     n1 = np.random.choice(Gr.nodes(), 1)[0]
-    #     print(s, n1, dtype[n1])
-    # np.random.seed(21)
-    # n1 = np.random.choice(Gr.nodes(), 1)[0]
     RUNS=100 # Batch size = 1mil/10
     num_samples_per_run = int(num_samples/RUNS)#100) # 50K samples
     dfs = [] # Collection of feature dicts
@@ -1641,29 +1569,19 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_C
     print(f'set of starting nodes {graph_nodes}')
     for i, n1 in enumerate(graph_nodes):
         print(f'Start node {i}/{len(Gr.nodes())}: {n1}')
-        # if i>0:
-        #     print(f'CREATING a mil samples based on a single ordering.')
-        #     break
         # Get the BFS ordering
         edges = nx.bfs_edges(Gr, n1)
         Ds = [n1] + [v for u, v in edges] # original nodes, convert to one-hot
-        # print(f'node order: {Ds, len(Ds)}')
-        # For each 
         _Xs = get_sample_batch(model_NGM, Ds, num_samples_per_run, dtype, ohe, max_itr=max_infer_itr, USE_CUDA=USE_CUDA, VERBOSE=VERBOSE)
         _dfs = original_from_onehot(_Xs, dtype, ohe)
         # Save the samples created
         if column_order is not None:
             _dfs = _dfs[column_order]
-        # _dfs.to_csv(folder+filename+str(i)+'.csv', index=False)
         dfs.append(_dfs)
-        # if i>2:
-        #     print(f'REMOVE')
-        #     break
     dfs = pd.concat(dfs, axis=0)
     print(f'Output Samples {dfs}')
     # Xs = pd.DataFrame(Xs, columns=Ds)
     return dfs
-
 
 
 def get_sample_single(model_NGM, Ds, max_itr=10):
@@ -1741,3 +1659,52 @@ def sampling_numerical(model_NGM, G, num_samples=10, max_infer_itr=20):
     # Convert to pd.DataFrame
     Xs = pd.DataFrame(Xs, columns=Ds)
     return Xs
+
+#************************************************************************
+
+
+# %%%%%%%%%%%%%%% Plot NGM graphs %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+def adjust_graph_sparsity(G_in, sparsity=1, roundOFF=4):
+    G = nx.Graph() # G_out 
+    names = np.array(G_in.nodes())
+    G.add_nodes_from(names)
+    rho = np.array(nx.adjacency_matrix(G_in).todense())
+    D = rho.shape[-1]
+    
+    # determining the threshold to maintain the sparsity level of the graph
+    def upper_tri_indexing(A):
+        m = A.shape[0]
+        r,c = np.triu_indices(m,1)
+        return A[r,c]
+
+    rho_upper = upper_tri_indexing(np.abs(rho))
+    num_non_zeros = int(sparsity*len(rho_upper))
+    rho_upper.sort()
+    th = rho_upper[-num_non_zeros]
+    print(f'Sparsity {sparsity} using threshold {th}')
+    th_pos, th_neg = th, -1*th
+
+    for i in range(D):
+        for j in range(i+1, D):
+            if rho[i,j] > th_pos:
+                G.add_edge(names[i], names[j], color='green', weight=round(rho[i,j], roundOFF), label='+')
+            elif rho[i,j] < th_neg:
+                G.add_edge(names[i], names[j], color='red', weight=round(rho[i,j], roundOFF), label='-')
+    return G
+
+
+
+def get_graph_NGM(model_NGM, sparsity=1):
+    model, scaler, feature_means = model_NGM
+    # Get the dependency matrix
+    prod_W = dp.t2np(product_weights_MLP(model))  
+    # Get the adjacency matrix (symmetric)
+    adj = (prod_W + np.transpose(prod_W))/2.0
+    G = nx.from_numpy_matrix(adj)
+    # add node names
+    mapping = {i:f for i, f in enumerate(feature_means.index)}
+    G = nx.relabel_nodes(G, mapping)
+    # adjust sparsity
+    G = adjust_graph_sparsity(G, sparsity=sparsity)
+    return G
