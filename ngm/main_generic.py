@@ -1397,7 +1397,7 @@ def inference_batch(
             Xo.requires_grad = False
             # Calculate the Inference loss using the known values
             reg_loss = mse(mask_known*Xp, mask_known*Xo)
-            reg_loss = -1*torch.log(reg_loss)
+            # reg_loss = torch.log(reg_loss)
             # reg_loss = mse(Xp, Xo)
             # calculate the backward gradients
             reg_loss.backward()
