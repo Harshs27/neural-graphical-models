@@ -211,7 +211,8 @@ def learning(
         # Initialize the MLP model
         if VERBOSE: print(f'Initializing the NGM model')
         # Send model to device
-        model = neural_view.DNN(I=D, H=hidden_dim, O=D).to(device)
+        model = neural_view.DNN(I=D, H=hidden_dim, O=D)
+        model = model.to(device)
         optimizer = neural_view.get_optimizers(model, lr=lr)
         if VERBOSE: print(f'NGM model initialized {model}')
 
@@ -1396,7 +1397,8 @@ def inference_batch(
             # Set the gradient to False
             Xo.requires_grad = False
             # Calculate the Inference loss using the known values
-            reg_loss = mse(mask_known*Xp, mask_known*Xo)
+            # reg_loss = mse(mask_known*Xp, mask_known*Xo)
+            reg_loss = mse(Xp, Xo)
             # reg_loss = torch.log(reg_loss)
             # reg_loss = mse(Xp, Xo)
             # calculate the backward gradients
@@ -1533,14 +1535,14 @@ def get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=10, USE_CUD
                 model_NGM, 
                 Xy, 
                 target_features, 
-                lr=0.1, 
+                lr=0.00001, # 0.1, 
                 max_itr=max_itr,
                 VERBOSE=VERBOSE,
-                reg_loss_th=1e-1, 
+                reg_loss_th=1e-3, #1e-1, 
                 BATCH_SIZE=10000,
                 USE_CUDA=USE_CUDA
             )
-            print(f'After {Xy.shape}')#[observed_features]}')
+            print(f'Current batch samples: {Xy.shape}')#[observed_features]}')
     return Xy
 
 
@@ -1583,6 +1585,267 @@ def sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_C
     # Xs = pd.DataFrame(Xs, columns=Ds)
     return dfs
 
+
+def fast_sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_CUDA=True, VERBOSE=True, column_order=None):
+    """Get samples from the learned NGM by using the sampling algorithm. 
+    The procedure is akin to Gibbs sampling. Batch sampling. 
+    Randomly choose one starting node. 
+
+    Args:
+        model_NGM (list): [
+            model (torch.nn.object): A MLP model for NGM's `neural' view,
+            scaler (sklearn object): Learned normalizer for the input data,
+            feature_means (pd.Series): [feature:mean val]
+        ]
+        Gr (nx.Graph): Conditional independence graph with original nodes
+        num_samples (int): The number of samples needed.
+        max_infer_itr (int): Max #iterations to run per inference per sample.
+
+    Returns:
+        Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
+    """
+    Xs = [] # Collection of feature dicts
+    start_nodes = np.random.choice(Gr.nodes(), 1, replace=False) # ['cause_of_death', 'combgest', 'brthwgt']
+    for i, start_node in enumerate(start_nodes):
+        print(f'Start sampling from node {start_node}, num samples {num_samples}')
+        # Get the BFS ordering
+        edges = nx.bfs_edges(Gr, start_node)
+        Ds = [start_node] + [v for u, v in edges] # original nodes, convert to one-hot
+        _Xs = get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=max_infer_itr, USE_CUDA=USE_CUDA, VERBOSE=VERBOSE)
+        if column_order is not None:
+            _Xs = _Xs[column_order]
+        Xs.append(_Xs)
+    Xs = pd.concat(Xs, axis=0)
+    print(f'Output Samples {Xs}')
+    return Xs
+
+
+# ********** SUPER FAST! ********
+def batch_inference_for_sampling(
+    model_NGM, 
+    Xs, 
+    lr=0.001, 
+    max_itr=100,
+    VERBOSE=True,
+    reg_loss_th=1e-5, 
+    BATCH_SIZE=1000,
+    USE_CUDA=True
+    ):
+    """Algorithm to run the batch inference for sampling.
+
+    The input is set as an unknown learnable tensor and is optimized 
+    using gradient descent to minimize the inference regression loss. 
+    Regression: Xp = f(Xi) 
+    Input Xi (learnable)
+    Reg loss for inference = ||Xp - Xi||^2_2
+
+    Args:
+        model_NGM (list): [
+            model (torch.nn.object): A MLP model for NGM's `neural' view,
+            scaler (sklearn object): Learned normalizer for the input data,
+            feature_means (pd.Series): [feature:mean val]
+        ]
+        node_feature_dict (dict): {'name':value}.
+        lr (float): Learning rate for the optimizer.
+        max_itr (int): For the convergence.
+        VERBOSE (bool): enable/disable print statements.
+        reg_loss_th (float): The threshold for reg loss convergence.
+
+    Returns:
+        Xpred (pd.DataFrame): Predictions for the unobserved features.
+            {'feature name': pred-value} 
+    """
+    device = torch.device("cuda") if USE_CUDA else torch.device("cpu") 
+    print(f'Using "{device}" compute')
+    B = min(BATCH_SIZE, Xs.shape[0])
+    numB = int(np.ceil(Xs.shape[0]/B))
+    # Get the NGM params
+    model, scaler, feature_means = model_NGM
+    model = model.to(device)
+    # Get the feature names and input dimension 
+    D = len(feature_means)
+    feature_names = feature_means.index
+    # Arrange the columns of input data to match feature means
+    Xs = Xs[feature_names] # BxD
+    # Freeze the model weights
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+    # Scale the input data
+    Xs = pd.DataFrame(scaler.transform(Xs), columns=Xs.columns)
+    # Input (unknown) tensors as learnable.
+    Xs = dp.convertToTorch(np.array(Xs), req_grad=True, use_cuda=USE_CUDA)
+    print(f'Input shape: {Xs.shape}')
+    # Setting the optimization parameters
+    optimizer_parameters = [Xs]
+    # Define the optimizer
+    optimizer = torch.optim.Adam(
+        optimizer_parameters,
+        lr=lr, 
+        betas=(0.9, 0.999),
+        eps=1e-08,
+        # weight_decay=0
+    )
+    # Minimizing for the regression loss for the known values.
+    best_Xp_batch = []
+    for b in range(numB):
+        print(f'Batch {b}/{numB}')
+        itr = 0
+        curr_reg_loss = np.inf
+        PRINT = int(max_itr/10) + 1 # will print only 10 times
+        mse = nn.MSELoss() # regression loss 
+        best_reg_loss = np.inf
+        if b==numB-1:
+            Xi = Xs[b*B:]
+        else:
+            Xi = Xs[b*B:(b+1)*B]
+
+        while curr_reg_loss > reg_loss_th and itr<max_itr: # Until convergence
+            # Creating the tensor input to the MLP model
+            # reset the grads to zero
+            optimizer.zero_grad()
+            # Running the NGM model 
+            Xp = model.MLP(Xi)
+            # Calculate the Inference loss 
+            reg_loss = mse(Xp, Xi)
+            # reg_loss = torch.log(reg_loss)
+            reg_loss.backward()
+            # updating the optimizer params with the grads
+            optimizer.step()
+            # Selecting the output with the lowest inference loss
+            curr_reg_loss = dp.t2np(reg_loss)
+            if curr_reg_loss < best_reg_loss:
+                best_reg_loss = curr_reg_loss
+                best_Xp = dp.t2np(Xi) #Xi
+            if not itr%PRINT and VERBOSE: 
+                print(f'itr {itr}: reg loss {curr_reg_loss}') #, Xi={Xi}, Xp={Xp}')
+
+            itr += 1
+        # Collect the predictions
+        best_Xp_batch.extend(best_Xp)
+    # inverse normalize the prediction
+    Xpred = dp.inverse_norm_table(best_Xp_batch, scaler)
+    Xpred = pd.DataFrame(Xpred, columns=feature_names)
+    return Xpred
+
+
+
+def sampling_using_direct_gradient(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, eps=3.0, USE_CUDA=True, VERBOSE=True, column_order=None):
+    """Get samples from the learned NGM by direct sampling. Add Uniform 
+    noise to the mean vector, then run inference with no observed features.
+    The gradient descent over the input tensor will learn the most likely
+    vector input that matches the NGM criteria of the input matching the output,
+    which means that it is a high probability sample. 
+
+    Args:
+        model_NGM (list): [
+            model (torch.nn.object): A MLP model for NGM's `neural' view,
+            scaler (sklearn object): Learned normalizer for the input data,
+            feature_means (pd.Series): [feature:mean val]
+        ]
+        Gr (nx.Graph): Conditional independence graph with original nodes
+        num_samples (int): The number of samples needed.
+        max_infer_itr (int): Max #iterations to run per inference per sample.
+
+    Returns:
+        Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
+    """
+    def convert_cats_to_one_hot(Xs):
+        # Convert the categorical variables to one-hot
+        cat_names = dp.get_cat_names(ohe, dtype)
+        def transform2onehot(cat_values, _feature_samples):
+            # Convert to one-hot
+            _ohe = preprocessing.OneHotEncoder(categories=[cat_values])#(handle_unknown='ignore')
+            _ohe.fit(_feature_samples)
+            _feature_samples = _ohe.transform(_feature_samples).toarray()
+            _feature_samples = pd.DataFrame(_feature_samples, columns=_ohe.get_feature_names_out())
+            return _feature_samples
+        #  and binary to their range. 
+        for f in dtype.keys():
+            if dtype[f]=='c':
+                # Get the one hot feature names for the original category
+                current_feature = cat_names[f]
+                current_cat_values = [fc.replace(f+'_', '') for fc in current_feature]
+                def sample_cat_from_prob(row):
+                    # Scale, so that the sum is one and get the probabilities
+                    p = np.array(row).clip(min=0)# - min(row)
+                    if sum(p)==0:
+                        p = None
+                    else:
+                        p = p/sum(p)
+                    # sampled_feature = np.random.choice(current_cat_values, 1, p=p)[0]
+                    sampled_feature = current_cat_values[np.argmax(p)]
+                    return sampled_feature
+
+                current_feature_samples = Xs[current_feature].apply(lambda row: sample_cat_from_prob(row), axis=1)
+                current_feature_samples = pd.DataFrame(current_feature_samples).astype('str')
+                current_feature_samples.columns=[str(f)]
+                current_feature_samples = transform2onehot(current_cat_values, current_feature_samples)
+                Xs[current_feature] = current_feature_samples[current_feature]
+        return Xs
+
+    # Get the feature means
+    model, scaler, feature_means = model_NGM
+    feature_names = feature_means.index  # one-hot included in feature names
+    Xs = pd.DataFrame({'header':feature_names, 0:feature_means.values}).transpose()
+    Xs.columns = Xs.loc['header']
+    Xs.drop(['header'], inplace=True)
+    Xs.index.name = None
+    # replicating the rows, num_samples times
+    Xs = Xs.append([Xs]*(num_samples-1),ignore_index=True)    
+    # Adding uniform noise to numerical, small % of random noise 
+    eps_noise = np.random.uniform(-1*eps*np.abs(Xs), eps*np.abs(Xs))
+    Xs = Xs+eps_noise
+    # print(f'Before calling batch inference {Xs.shape, eps_noise.shape, eps_noise, Xs}')
+    Xs = batch_inference_for_sampling(  # UPDATE THE PARAMS HERE ******
+        model_NGM, 
+        Xs, 
+        lr=0.01, # 0.1, 
+        max_itr=max_infer_itr,
+        VERBOSE=VERBOSE,
+        reg_loss_th=1e-5, #1e-1, 
+        BATCH_SIZE=10000,
+        USE_CUDA=USE_CUDA
+    )
+    # print('convert_cats_to_one_hot')
+    # Xs = convert_cats_to_one_hot(Xs)
+    print(f'Batch samples: {Xs, Xs.shape}')
+    return Xs
+
+
+
+def old_fast_sampling(model_NGM, Gr, dtype, ohe, num_samples=100, max_infer_itr=20, USE_CUDA=True, VERBOSE=True, column_order=None):
+    """Get samples from the learned NGM by using the sampling algorithm. 
+    The procedure is akin to Gibbs sampling. Batch sampling. 
+    Randomly choose one starting node. 
+
+    Args:
+        model_NGM (list): [
+            model (torch.nn.object): A MLP model for NGM's `neural' view,
+            scaler (sklearn object): Learned normalizer for the input data,
+            feature_means (pd.Series): [feature:mean val]
+        ]
+        Gr (nx.Graph): Conditional independence graph with original nodes
+        num_samples (int): The number of samples needed.
+        max_infer_itr (int): Max #iterations to run per inference per sample.
+
+    Returns:
+        Xs (pd.DataFrame): [{'feature name': pred-value} x num_samples]
+    """
+    dfs = [] # Collection of feature dicts
+    start_node = np.random.choice(Gr.nodes(), 1, replace=False)[0]
+    print(f'Start sampling from node {start_node}, num samples {num_samples}')
+    # Get the BFS ordering
+    edges = nx.bfs_edges(Gr, start_node)
+    Ds = [start_node] + [v for u, v in edges] # original nodes, convert to one-hot
+    Xs = get_sample_batch(model_NGM, Ds, num_samples, dtype, ohe, max_itr=max_infer_itr, USE_CUDA=USE_CUDA, VERBOSE=VERBOSE)
+    dfs = original_from_onehot(Xs, dtype, ohe)
+    # Save the samples created
+    if column_order is not None:
+        dfs = dfs[column_order]
+    print(f'Output Samples {dfs}')
+    Xs = pd.DataFrame(Xs, columns=Ds)
+    return dfs, Xs
 
 def get_sample_single(model_NGM, Ds, max_itr=10):
     """Get a sample from the NGM model.
